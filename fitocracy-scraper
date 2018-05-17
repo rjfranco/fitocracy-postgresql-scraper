@@ -49,7 +49,7 @@ class FitocracyScraper
         else
           @username = options.default[:user]
           @password = options.default[:password]
-          @database_name = options.default[:database] || 'fitocracy_dump'
+          setup_database(options)
 
           begin_scrape
         end
@@ -64,7 +64,9 @@ class FitocracyScraper
     setup_driver
     authenticate
 
+    @database.close
     @driver.quit
+    notify 'Done!', '🎉'
   end
 
   def authenticate
@@ -77,11 +79,35 @@ class FitocracyScraper
     login_form.submit
 
     wait_for_profile_id
-    TerminalNotifier.notify "Logged in as #{@username} (#{@profile_id})"
+    notify "Logged in as #{@username} (#{@profile_id})"
   end
 
   def document_ready
     @driver.execute_script('return document.readyState') == 'complete'
+  end
+
+  def notify(message, symbol = '▶')
+    TerminalNotifier.notify message
+    puts "#{symbol} #{message}"
+  end
+
+  def setup_database(options)
+    database_name = options.default[:database] || 'fitocracy_dump'
+    master_db = PG.connect(dbname: 'postgres')
+    master_db.exec('SET client_min_messages TO WARNING')
+    master_db.exec("DROP DATABASE IF EXISTS #{database_name}")
+    master_db.exec("CREATE DATABASE #{database_name}")
+    master_db.close
+
+    @database = PG.connect(dbname: database_name)
+    notify "Connected to database: #{database_name}"
+  end
+
+  def setup_driver
+    driver_options = Selenium::WebDriver::Chrome::Options.new(args: ['headless'])
+    @driver = Selenium::WebDriver.for(:chrome, options: driver_options)
+    @driver.manage.timeouts.implicit_wait = 10
+    notify 'Browser Setup'
   end
 
   def wait_for_profile_id
@@ -91,13 +117,6 @@ class FitocracyScraper
     else
       wait_for_profile_id
     end
-  end
-
-  def setup_driver
-    driver_options = Selenium::WebDriver::Chrome::Options.new(args: ['headless'])
-    @driver = Selenium::WebDriver.for(:chrome, options: driver_options)
-    @driver.manage.timeouts.implicit_wait = 10
-    TerminalNotifier.notify 'Browser Setup'
   end
 end
 
