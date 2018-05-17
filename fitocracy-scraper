@@ -2,6 +2,7 @@
 # class FitocracyScraper
 require 'rubygems'
 require 'commander'
+require 'pg'
 require 'pry'
 require 'selenium-webdriver'
 require 'terminal-notifier'
@@ -76,6 +77,7 @@ class FitocracyScraper
     login_form.submit
 
     wait_for_profile_id
+    TerminalNotifier.notify "Logged in as #{@username} (#{@profile_id})"
   end
 
   def document_ready
@@ -95,6 +97,7 @@ class FitocracyScraper
     driver_options = Selenium::WebDriver::Chrome::Options.new(args: ['headless'])
     @driver = Selenium::WebDriver.for(:chrome, options: driver_options)
     @driver.manage.timeouts.implicit_wait = 10
+    TerminalNotifier.notify 'Browser Setup'
   end
 end
 
