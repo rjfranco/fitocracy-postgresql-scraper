@@ -10,4 +10,4 @@ A tool to grab data from fitocracy and dump it into a postgresql database.
 
 
 ## Usage
-Simply run: `[ruby] fitocracy-scraper.rb -u username -p password`. Optionally you can provider `-d database_name` to override the default one of "fitocracy_dump". You can use --help for details.
+Simply run: `[ruby |./]fitocracy-scraper.rb -u username -p password`. Optionally you can provider `-d database_name` to override the default one of "fitocracy_dump". You can use --help for details.
