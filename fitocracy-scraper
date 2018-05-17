@@ -1,3 +1,5 @@
+#!/usr/bin/env ruby
+
 require 'rubygems'
 require 'commander/import'
 require 'pry'
@@ -18,11 +20,13 @@ program :help, 'Usage:', "Script useage is very simplistic, provide a valid fito
 
 #{Terminal::Table.new(title: 'exercises', rows: [%w[id name]], style: table_styles)}
 
-#{Terminal::Table.new(title: 'workouts', rows: [%w[id date set_ids super_set_ids]], style: table_styles)}
+#{Terminal::Table.new(title: 'workouts', rows: [%w[id date set_group_ids super_set_ids]], style: table_styles)}
 
-#{Terminal::Table.new(title: 'super_sets', rows: [%w[id set_ids]], style: table_styles)}
+#{Terminal::Table.new(title: 'super_sets', rows: [%w[id set_group_ids]], style: table_styles)}
 
-#{Terminal::Table.new(title: 'sets', rows: [%w[id exercise_id reps pr]], style: table_styles)}"
+#{Terminal::Table.new(title: 'set_groups', rows: [%w[id exercise_id set_ids]], style: table_styles)}
+
+#{Terminal::Table.new(title: 'sets', rows: [%w[id set_group_id reps pr]], style: table_styles)}"
 
 global_option('-u', '--user username', 'REQUIRED: You must provider a user name')
 global_option('-p', '--password password', 'REQUIRED: You must provider the corresponding password')
@@ -48,10 +52,7 @@ def begin_scrape(options)
   database_name = options.default[:database] || 'fitocracy_dump'
 
   driver = setup_driver
-
   profile_id = authenticate(driver, user, password)
-
-  grab
 
   driver.quit
 end
@@ -65,11 +66,25 @@ def authenticate(driver, username, password)
   login_form.find_element(name: 'password').send_keys(password)
   login_form.submit
 
-  driver.execute_script('return user_id')
+  profile_id = wait_for_profile_id(driver)
+end
+
+def document_ready(driver)
+  driver.execute_script('return document.readyState') == 'complete'
+end
+
+def wait_for_profile_id(driver)
+  sleep 1
+  if document_ready(driver)
+    driver.execute_script('return user_id')
+  else
+    wait_for_profile_id(driver)
+  end
 end
 
 def setup_driver
   driver_options = Selenium::WebDriver::Chrome::Options.new(args: ['headless'])
   driver = Selenium::WebDriver.for(:chrome, options: driver_options)
   driver.manage.timeouts.implicit_wait = 10
+  driver
 end
