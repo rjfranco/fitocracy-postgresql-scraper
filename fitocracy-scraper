@@ -27,13 +27,13 @@ class FitocracyScraper
 
     #{Terminal::Table.new(title: 'exercises', rows: [%w[id name]], style: table_styles)}
 
-    #{Terminal::Table.new(title: 'workouts', rows: [%w[id date set_group_ids super_set_ids]], style: table_styles)}
+    #{Terminal::Table.new(title: 'workouts', rows: [%w[id date]], style: table_styles)}
 
-    #{Terminal::Table.new(title: 'super_sets', rows: [%w[id set_group_ids]], style: table_styles)}
+    #{Terminal::Table.new(title: 'super_sets', rows: [%w[id]], style: table_styles)}
 
-    #{Terminal::Table.new(title: 'set_groups', rows: [%w[id exercise_id set_ids]], style: table_styles)}
+    #{Terminal::Table.new(title: 'set_groups', rows: [%w[id exercise_id super_set_id comment]], style: table_styles)}
 
-    #{Terminal::Table.new(title: 'sets', rows: [%w[id set_group_id reps pr]], style: table_styles)}"
+    #{Terminal::Table.new(title: 'sets', rows: [%w[id set_group_id name reps pr]], style: table_styles)}"
 
     global_option('-u', '--user username', 'REQUIRED: You must provider a user name')
     global_option('-p', '--password password', 'REQUIRED: You must provider the corresponding password')
@@ -66,7 +66,7 @@ class FitocracyScraper
     authenticate
     parse_and_store_data
 
-    @database.close
+    @database.disconnect
     @driver.quit
     notify 'Done!', '🎉'
   end
@@ -106,6 +106,7 @@ class FitocracyScraper
 
   def parse_and_store_element(workout)
     element_time = "#{workout.find_element(css: '.action_time').text}Z"
+    Time.parse(element_time)
   end
 
   def setup_database(options)
@@ -119,6 +120,9 @@ class FitocracyScraper
 
     @database = Sequel.connect(adapter: :postgres, database: database_name)
 
+    setup_tables
+    setup_models
+
     notify "Connected to database: #{database_name}"
   end
 
@@ -127,6 +131,55 @@ class FitocracyScraper
     @driver = Selenium::WebDriver.for :chrome, options: driver_options
     @driver.manage.timeouts.implicit_wait = 10
     notify 'Browser Setup'
+  end
+
+  def setup_models
+    Dir[File.dirname(__FILE__) + '/models/*'].each { |file| require file }
+  end
+
+  def create_exercises_table
+    @database.create_table :exercises do
+      primary_key :id
+      String      :name
+      Integer     :count
+    end
+  end
+
+  def create_set_groups_table
+    @database.create_table :set_groups do
+      primary_key :id
+      foreign_key :workout_id,   :workouts
+      foreign_key :exercise_id,  :exercises
+      foreign_key :super_set_id, :set_groups
+    end
+  end
+
+  def create_sets_table
+    @database.create_table :sets do
+      primary_key :id
+      foreign_key :set_group_id, :set_groups
+      String      :name
+      Integer     :reps
+      TrueClass   :pr, default: false
+    end
+  end
+
+  def create_super_sets_table
+    @database.create_table :super_sets do
+      primary_key :id
+    end
+  end
+
+  def create_workouts_table
+    @database.create_table :workouts do
+      primary_key :id
+      DateTime    :date
+    end
+  end
+
+  def setup_tables
+    tables = %w[exercises workouts super_sets set_groups sets]
+    tables.each { |table| public_send "create_#{table}_table" }
   end
 
   def wait_for_profile_id
