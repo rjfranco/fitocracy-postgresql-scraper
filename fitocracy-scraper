@@ -98,15 +98,18 @@ class FitocracyScraper
       foreign_key :workout_id,   :workouts
       foreign_key :super_set_id, :super_sets
       foreign_key :exercise_id,  :exercises
+      String      :note
     end
   end
 
   def create_sets_table
+    @database.create_enum(:weight_unit, %w[pounds kilograms stone])
     @database.create_table :sets do
       primary_key :id
       foreign_key :set_group_id, :set_groups
-      String      :name
       Integer     :reps
+      Float       :weight
+      weight_unit :unit
       TrueClass   :pr, default: false
     end
   end
@@ -145,17 +148,16 @@ class FitocracyScraper
     @driver.get("https://www.fitocracy.com/activity_stream/#{@index}/?user_id=#{@profile_id}")
 
     doc = Nokogiri::HTML(@driver.page_source)
+    workout_elements = doc.css('[data-ag-type="workout"]')
 
-    doc.css('[data-ag-type="workout"]').each do |workout_element|
+    workout_elements.each do |workout_element|
       parse_workout(workout_element)
     end
 
-    # return if workout_elements.count < 15
+    return if workout_elements.count.zero?
 
-    notify 'End of first cycle'
-    # @index += 15
-    # notify "Updating index to: #{@index}"
-    # parse_and_store_data
+    @index += 15
+    parse_and_store_data
   end
 
   def parse_activities(workout_element, workout, super_set = nil)
@@ -175,7 +177,32 @@ class FitocracyScraper
     set_group = SetGroup.new(super_set: super_set, workout: workout)
 
     set_group.exercise = get_exercise_from_name set_group_element.css('.action_prompt').first.text
+    set_group_note_element = set_group_element.css('.stream_note').first
+    set_group.note = set_group_note_element.text.strip if set_group_note_element
     set_group.save
+
+    parse_sets(set_group_element.css('li:not(.stream_note)'), set_group)
+  end
+
+  def parse_set(set_string, set_group)
+    pr = !!(set_string =~ /\(PR\)/)
+
+    if set_string =~ /^([.\d]+)\s(\w+)\sx\s(\d+)/
+      weight, unit_label, reps = set_string.match(/^([.\d]+)\s(\w+)\sx\s(\d+)/).captures
+      WorkoutSet.new(reps: reps, unit: unit(unit_label), weight: weight, set_group: set_group, pr: pr).save
+    elsif set_string =~ /(\d+)\sreps/
+      reps = set_string.match(/(\d+)\sreps/).captures
+      WorkoutSet.new(reps: reps, set_group: set_group, pr: pr).save
+    else
+      puts "Failed to capture set_string: '#{set_string}'"
+    end
+  end
+
+  def parse_sets(set_elements, set_group)
+    set_elements.each do |set_element|
+      set_string = set_element.text.strip
+      parse_set(set_string, set_group)
+    end
   end
 
   def parse_workout(workout_element)
@@ -196,6 +223,7 @@ class FitocracyScraper
     end
 
     @database = Sequel.connect(adapter: :postgres, database: database_name)
+    @database.extension :pg_enum
 
     setup_tables
     setup_models
@@ -228,6 +256,16 @@ class FitocracyScraper
       wait_for_profile_id
     end
   end
+end
+
+def unit(unit_label)
+  unit_types = {
+    'kg' => :kilograms,
+    'lb' => :pounds,
+    'st' => :stone
+  }
+
+  unit_types[unit_label.downcase]
 end
 
 FitocracyScraper.new.run if $PROGRAM_NAME == __FILE__
