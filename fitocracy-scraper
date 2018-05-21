@@ -4,7 +4,6 @@ require 'rubygems'
 require 'commander'
 require 'pg'
 require 'pry'
-require 'selenium-webdriver'
 require 'sequel'
 require 'terminal-notifier'
 require 'terminal-table'
@@ -84,6 +83,46 @@ class FitocracyScraper
     notify "Logged in as #{@username} (#{@profile_id})"
   end
 
+  def create_exercises_table
+    @database.create_table :exercises do
+      primary_key :id
+      String      :name
+    end
+  end
+
+  def create_set_groups_table
+    @database.create_table :set_groups do
+      primary_key :id
+      foreign_key :workout_id,   :workouts
+      foreign_key :super_set_id, :super_sets
+      foreign_key :exercise_id,  :exercises
+    end
+  end
+
+  def create_sets_table
+    @database.create_table :sets do
+      primary_key :id
+      foreign_key :set_group_id, :set_groups
+      String      :name
+      Integer     :reps
+      TrueClass   :pr, default: false
+    end
+  end
+
+  def create_super_sets_table
+    @database.create_table :super_sets do
+      primary_key :id
+      foreign_key :workout_id, :workouts
+    end
+  end
+
+  def create_workouts_table
+    @database.create_table :workouts do
+      primary_key :id
+      DateTime    :time
+    end
+  end
+
   def document_ready
     @driver.execute_script('return document.readyState') == 'complete'
   end
@@ -93,20 +132,56 @@ class FitocracyScraper
     puts "#{symbol} #{message}"
   end
 
+  def get_exercise_from_name(name)
+    exercise = Exercise.first(name: name) || Exercise.new(name: name).save
+    exercise
+  end
+
   def parse_and_store_data
-    @page ||= 0
-    @driver.get("https://www.fitocracy.com/activity_stream/#{@page}/?user_id=#{@profile_id}")
+    @index ||= 0
+    notify "Requesting page at index: #{@index}"
+    @driver.get("https://www.fitocracy.com/activity_stream/#{@index}/?user_id=#{@profile_id}")
 
-    workouts = @driver.find_elements :css, '[data-ag-type="workout"]'
+    workouts_elements = @driver.find_elements css: '[data-ag-type="workout"]'
+    workouts_elements.each do |workout_element|
+      parse_workout(workout_element)
+    end
 
-    workouts.each do |workout|
-      parse_and_store_element workout
+    return if workout_elements.count < 15
+
+    notify 'End of first cycle'
+    # @index += 15
+    # notify "Updating index to: #{@index}"
+    # parse_and_store_data
+  end
+
+  def parse_activities(element, workout, super_set = nil)
+    element.find_elements(:css, 'div > ul > li').each do |activity|
+      action_prompts = activity.find_elements(css: '.action_prompt')
+      if action_prompts.count > 0
+        if /^Group/ =~ action_prompts.first.text
+          parse_activities activity, workout, SuperSet.new(workout: workout).save
+        else
+          parse_set_group activity, workout, super_set
+        end
+      end
     end
   end
 
-  def parse_and_store_element(workout)
-    element_time = "#{workout.find_element(css: '.action_time').text}Z"
-    Time.parse(element_time)
+  def parse_set_group(set_group_element, workout, super_set)
+    set_group = SetGroup.new(super_set: super_set, workout: workout)
+
+    set_group.exercise = get_exercise_from_name set_group_element.find_element(css: '.action_prompt').text
+    set_group.save
+  end
+
+  def parse_workout(workout_element)
+    workout = Workout.new
+    workout.time = Time.parse("#{workout_element.find_element(css: '.action_time').text}Z")
+    workout.save
+    puts "This should only happen once per date #{workout.time}"
+
+    parse_activities workout_element, workout
   end
 
   def setup_database(options)
@@ -135,46 +210,6 @@ class FitocracyScraper
 
   def setup_models
     Dir[File.dirname(__FILE__) + '/models/*'].each { |file| require file }
-  end
-
-  def create_exercises_table
-    @database.create_table :exercises do
-      primary_key :id
-      String      :name
-      Integer     :count
-    end
-  end
-
-  def create_set_groups_table
-    @database.create_table :set_groups do
-      primary_key :id
-      foreign_key :workout_id,   :workouts
-      foreign_key :exercise_id,  :exercises
-      foreign_key :super_set_id, :set_groups
-    end
-  end
-
-  def create_sets_table
-    @database.create_table :sets do
-      primary_key :id
-      foreign_key :set_group_id, :set_groups
-      String      :name
-      Integer     :reps
-      TrueClass   :pr, default: false
-    end
-  end
-
-  def create_super_sets_table
-    @database.create_table :super_sets do
-      primary_key :id
-    end
-  end
-
-  def create_workouts_table
-    @database.create_table :workouts do
-      primary_key :id
-      DateTime    :date
-    end
   end
 
   def setup_tables
