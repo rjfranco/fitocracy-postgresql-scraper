@@ -3,6 +3,7 @@
 source 'https://rubygems.org'
 
 gem 'commander'
+gem 'nokogiri'
 gem 'pg'
 gem 'pry'
 gem 'rubocop'

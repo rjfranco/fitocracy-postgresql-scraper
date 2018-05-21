@@ -2,9 +2,11 @@
 # class FitocracyScraper
 require 'rubygems'
 require 'commander'
+require 'nokogiri'
 require 'pg'
 require 'pry'
 require 'sequel'
+require 'selenium-webdriver'
 require 'terminal-notifier'
 require 'terminal-table'
 
@@ -142,12 +144,13 @@ class FitocracyScraper
     notify "Requesting page at index: #{@index}"
     @driver.get("https://www.fitocracy.com/activity_stream/#{@index}/?user_id=#{@profile_id}")
 
-    workouts_elements = @driver.find_elements css: '[data-ag-type="workout"]'
-    workouts_elements.each do |workout_element|
+    doc = Nokogiri::HTML(@driver.page_source)
+
+    doc.css('[data-ag-type="workout"]').each do |workout_element|
       parse_workout(workout_element)
     end
 
-    return if workout_elements.count < 15
+    # return if workout_elements.count < 15
 
     notify 'End of first cycle'
     # @index += 15
@@ -155,11 +158,11 @@ class FitocracyScraper
     # parse_and_store_data
   end
 
-  def parse_activities(element, workout, super_set = nil)
-    element.find_elements(:css, 'div > ul > li').each do |activity|
-      action_prompts = activity.find_elements(css: '.action_prompt')
+  def parse_activities(workout_element, workout, super_set = nil)
+    workout_element.css('div > ul > li').each do |activity|
+      action_prompts = activity.css('.action_prompt')
       if action_prompts.count > 0
-        if /^Group/ =~ action_prompts.first.text
+        if /^Group/ =~ action_prompts.first.text.strip
           parse_activities activity, workout, SuperSet.new(workout: workout).save
         else
           parse_set_group activity, workout, super_set
@@ -171,15 +174,14 @@ class FitocracyScraper
   def parse_set_group(set_group_element, workout, super_set)
     set_group = SetGroup.new(super_set: super_set, workout: workout)
 
-    set_group.exercise = get_exercise_from_name set_group_element.find_element(css: '.action_prompt').text
+    set_group.exercise = get_exercise_from_name set_group_element.css('.action_prompt').first.text
     set_group.save
   end
 
   def parse_workout(workout_element)
     workout = Workout.new
-    workout.time = Time.parse("#{workout_element.find_element(css: '.action_time').text}Z")
+    workout.time = Time.parse("#{workout_element.css('.action_time').text}Z")
     workout.save
-    puts "This should only happen once per date #{workout.time}"
 
     parse_activities workout_element, workout
   end
